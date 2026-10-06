@@ -46,7 +46,38 @@ pipeline {
                             '''
                     }
                 }
-
             }
-        }
+
+            stage('Deploy') {
+                steps {
+                    sh '''
+                        set -e
+                        docker rm -f extract stage 2>/dev/null || true
+
+                        # take the new binary out of the image we just built
+                        docker create --name extract devops-test:${GIT_SHORT}
+                        docker cp extract:/app/app ./app.new
+                        docker rm extract
+
+                        # put it into the volume
+                        docker create --name stage -v app-bin:/app alpine
+                        docker cp ./app.new stage:/app/app.new
+                        docker rm stage
+
+                        # keep the old binary, swap, restart
+                        docker run --rm -v app-bin:/app alpine sh -c "cp /app/app /app/app.prev && mv /app/app.new /app/app"
+                        docker restart simple-journey-test
+
+                        sleep 3
+                        if docker run --rm --network container:simple-journey-test curlimages/curl -sf localhost:8080 | grep "version=${GIT_SHORT}"; then
+                            echo "deploy ok"
+                        else
+                            echo "health check failed, rolling back"
+                            docker run --rm -v app-bin:/app alpine sh -c "cp /app/app.prev /app/app"
+                            docker restart simple-journey-test
+                            exit 1
+                        fi
+                        '''
+                }
+            }}
 }
