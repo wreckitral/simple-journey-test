@@ -19,5 +19,15 @@ pipeline {
                     '''
                 }
             }
+
+            stage('Build Image') {
+                steps {
+                    script {
+                        env.GIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    }
+
+                    sh 'docker build --build-arg VERSION=${GIT_SHORT} -t devops-test:${GIT_SHORT} .'
+                }
+            }
         }
 }
