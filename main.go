@@ -9,7 +9,7 @@ import (
 var version = "dev"
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello, Defha! version=%s\nsimulating a fix\n", version)
+	fmt.Fprintf(w, "Hello, DevOps! version=%s\nsimulating a fix\n", version)
 }
 
 func main() {
