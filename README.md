@@ -113,3 +113,64 @@ with `docker cp` the fix would be lost
 - i kept the old binary as `bin/app.1.0.0`, so rollbak is `mv` it back then restart
 - trade off: the running system is only defined by a loose file on the host and not by an image,
 so honestly i wont use this approach in production hehe, in production i would probably do rebuild and roll out a new image instead
+
+## Part III: Jenkins
+i got 5 stages of pipeline, checkout, test, build image, push, deploy
+
+**setup**
+- i run jenkins in the docker on port 8081
+- docker socket is mounted into the jenkins container and the docker client is installed inside it,
+so the pipeline can run docker command on my laptop
+- tbh, running Jenkins as root with the docker socket is a shortcut for this test, in production i would use a separate agent
+
+```bash
+docker run -d --name jenkins -u root -p 8081:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home -v /var/run/docker.sock:/var/run/docker.sock jenkins/jenkins:lts-jdk17
+docker exec -u root jenkins sh -c "apt-get update && apt-get install -y docker.io"
+```
+
+- the repo is private, Jenkins clones it with a read-only token
+- the job is "Pipeline script from SCM", it reads the Jenkinsfile from the `main` branch
+- i trigger the build manually with Build Now
+
+**Credentials**
+- no secret is written in the Jenkinsfile, only the credential IDs
+- `github-token`: fine-grained token, contents read-only, to clone the private repo
+- `ghcr-token`: classic token with `write:packages`, to push the image
+- the push stage uses `withCredentials`, Jenkins injects the values only inside that block and masks them in the log
+- the login uses `--password-stdin` so the token is not on the command line
+
+**Stages**
+- **Checkout**: `checkout scm` pulls the code from the repo
+- **Test**: runs `go test ./...` inside a throwaway `golang:1.27` container, because Jenkins has no Go installed
+- **Build Image**: `docker build --build-arg VERSION=<short commit hash>`, and the image is tagged with the same hash, so the running version always maps back to a commit
+- **Push**: tag and push to GHCR as `ghcr.io/wreckitral/devops-test:<hash>`
+- **Deploy**: the same "replace binary without rebuild" from Part II, automated:
+  - take the new binary out of the image that was just built (`docker create` + `docker cp`)
+  - put it in the `app-bin` volume
+  - keep the old binary as `app.prev`, `mv` the new one in, `docker restart`
+  - health check, then rollback if it fails
+
+**Change from Part II**
+- the bind mount to `./bin` does not work from the pipeline, because Jenkins runs in its own container and can't see my laptop folder
+- so the container now uses a named volume instead, the idea is the same (binary lives outside the image, swap = replace file + restart)
+
+```bash
+docker volume create app-bin
+docker run -d --name simple-journey-test --restart unless-stopped -p 8080:8080 -v app-bin:/app devops-test:1.0.0
+```
+
+**Evidence**
+- successful run, all stages green, deployed `version=435145e`, the log ends with `deploy ok` and `Finished: SUCCESS`
+
+![pipeline success](pipeline-success.png)
+
+- failing test: i broke a test on purpose, the Test stage went red and Build Image, Push and Deploy did not run, then i reverted it
+
+![pipeline fail](pipeline-failed.png)
+
+**Rollback if deploy fails midway**
+- before the swap the old binary is saved as `app.prev` in the volume
+- after the restart the pipeline curls the app (from a small container that joins the app's network) and checks that it answers with the new version
+- if the check fails, the stage copies `app.prev` back, restarts the container and exits with an error, so the build goes red
+- limit, it only catches failures that show up in the health check, if the deploy dies in the middle of the swap itself it is not covered
+- in production i would rollback by redeploying the previous image tag from the registry
