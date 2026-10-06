@@ -101,6 +101,7 @@ then we swap and restart
 
 so while the swapping scenario was running i open another terminal that watches the up time for the container
 `while true; do date +%T; curl -s -m 1 localhost:8080 || echo DOWN; sleep 0.5; done`
+
 ![devops test](devops-test-log.png)
 
 **Why i choose this approach**
