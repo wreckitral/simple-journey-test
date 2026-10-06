@@ -50,6 +50,7 @@ docker run -d --name simple-journey-test --restart unless-stopped -p 8080:8080 d
 - i pick it over `always` because `always` also brings back a container that i stopped on purpose once the docker daemon restarts
 
 **Proof that the restart policy works**
+
 - `docker kill` doesn't count as a crash, docker treats it as a manual stop and the container stays down
 - i'm on Docker Desktop, the daemon runs inside a VM so i can't see the container PID from my shell, `sudo kill` fails
 - so i kill the process from a privileged helper container that shares the VM's PID space
@@ -64,9 +65,11 @@ docker inspect -f '{{.RestartCount}} {{.State.Pid}}' simple-journey-test
 - restart count went from 0 to 1 and the PID changed, so docker restarted the container by itself
 
 **swap hotfix scenario**
+
 i choose the bind mount approach, so the binary lives on the host in `./bin`, then the container runs it from there.
 
 **setup**
+
 these command will pull the current v1.0.0 binary out of the running container
 `mkdir -p bin`
 `docker cp simple-journey-test:/app/app ./bin/app`
@@ -79,10 +82,12 @@ then recreate the container once, with the host folder mounted over /app
 - `bin/` is in `.gitignore`, since binary is not commited
 
 **before swap**
+
 `curl localhost:8080`
 `Hello, DevOps! version=1.0.0`
 
 **hotfix**
+
 build the binary
 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=1.0.1 -s -w" -o bin/app.new .`
 check if its static binary or not
@@ -93,11 +98,13 @@ then we swap and restart
 `docker restart simple-journey-test`
 
 **watcher**
+
 so while the swapping scenario was running i open another terminal that watches the up time for the container
 `while true; do date +%T; curl -s -m 1 localhost:8080 || echo DOWN; sleep 0.5; done`
 ![devops test](devops-test-log.png)
 
 **Why i choose this approach**
+
 - the binary lives on the host, so the fix survives if the container is recreated,
 with `docker cp` the fix would be lost
 - the swap i did is only replacing one file then running `docker restart`, no rebuild
