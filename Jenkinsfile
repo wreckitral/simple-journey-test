@@ -1,12 +1,23 @@
 pipeline {
     agent any
+        stages {
+            stage('Checkout') {
+                steps {
+                    checkout scm
+                        sh 'ls -l'
+                }
+            }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-                sh 'ls -l'
+            stage('Test') {
+                steps {
+                    sh '''
+                        docker run --rm \
+                        -v jenkins_home:/var/jenkins_home \
+                        -w "$WORKSPACE" \
+                        golang:1.27 go test ./...
+
+                    '''
+                }
             }
         }
-    }
 }
